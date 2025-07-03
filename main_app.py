@@ -70,6 +70,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 
+
 class EmailCleanerDashboard:
     """Streamlit dashboard for AI Email Cleaner"""
     
@@ -196,9 +197,7 @@ class EmailCleanerDashboard:
         with col2:
             st.markdown("### 🚀 Getting Started")
             
-            st.markdown("""
-            Welcome to the AI Email Cleaner! This tool will help you:
-            
+            st.markdown("""Welcome to the AI Email Cleaner! This tool will help you:
             - 📧 Analyze your Gmail inbox intelligently
             - 🤖 Categorize emails using AI
             - 🗑️ Automatically delete unwanted emails
@@ -215,12 +214,10 @@ class EmailCleanerDashboard:
             st.markdown("---")
             
             # Option 2: Upload credentials file
-            st.info("""
-            **Alternative**: Upload your Gmail credentials JSON file:
+            st.info("""**Alternative**: Upload your Gmail credentials JSON file:
             1. Download credentials from Google Cloud Console
             2. Upload the file below
-            3. Authenticate with your Google account
-            """)
+            3. Authenticate with your Google account""")
             
             credentials_file = st.file_uploader("Upload client_secret.json", type="json")
             if credentials_file is not None:
@@ -435,7 +432,6 @@ class EmailCleanerDashboard:
         
         with col1:
             st.markdown("#### 🗑️ Delete Actions")
-            # Use string value instead of enum
             delete_emails = [e for e in st.session_state.analyzed_emails 
                            if e.get('action') == EmailAction.DELETE.value]
             
@@ -446,7 +442,6 @@ class EmailCleanerDashboard:
         
         with col2:
             st.markdown("#### 🚫 Unsubscribe Actions")
-            # Use string value instead of enum
             unsub_emails = [e for e in st.session_state.analyzed_emails 
                           if e.get('action') == EmailAction.UNSUBSCRIBE.value]
             
@@ -457,7 +452,6 @@ class EmailCleanerDashboard:
         
         with col3:
             st.markdown("#### 📧 Archive Actions")
-            # Use string value instead of enum
             archive_emails = [e for e in st.session_state.analyzed_emails 
                             if e.get('action') == EmailAction.ARCHIVE.value]
             
@@ -542,36 +536,31 @@ class EmailCleanerDashboard:
             logger.error(f"Gmail connection error: {e}")
 
     def connect_gmail_with_file(self, credentials_file):
-        """Connect to Gmail using uploaded credentials file"""
+        """Authenticate using uploaded credentials file"""
         try:
-            with st.spinner("Connecting to Gmail..."):
-                # Read credentials data
-                credentials_data = json.load(credentials_file)
-                credentials_json = json.dumps(credentials_data)
-                
-                # Initialize Gmail manager and store in session state
-                gmail_manager = EnhancedGmailManager()
-                flow = InstalledAppFlow.from_client_secrets_file(self.credentials_file, self.SCOPES)
-                creds = flow.run_console() 
+            # Read credentials from the uploaded file
+            credentials_data = json.load(credentials_file)
+            credentials_json = json.dumps(credentials_data)
 
-                if creds:
-                    st.session_state.gmail_manager = gmail_manager
-                    
-                    # Load Gemini API key from environment variable
-                    gemini_api_key = os.getenv("GEMINI_API_KEY")
-                    if not gemini_api_key:
-                        st.error("GEMINI_API_KEY environment variable not set. Please set it and rerun.")
-                        return
-                    
-                    st.session_state.ai_analyzer = AIEmailAnalyzer(gemini_api_key)
-                    st.session_state.gmail_connected = True
-                    st.success(f"Connected to Gmail: {gmail_manager.user_email}")
-                    st.rerun()
-                else:
-                    st.error("Failed to authenticate with provided credentials")
+            # Initialize Gmail manager and authenticate
+            gmail_manager = EnhancedGmailManager()
+            if gmail_manager.authenticate_with_credentials(credentials_json):
+                st.session_state.gmail_manager = gmail_manager
+
+                # Initialize AI Email Analyzer
+                gemini_api_key = st.secrets.get("GEMINI_API_KEY")  # Use secrets for storing API keys
+                if not gemini_api_key:
+                    st.error("GEMINI_API_KEY environment variable not set. Please set it and rerun.")
+                    return
+
+                st.session_state.ai_analyzer = AIEmailAnalyzer(gemini_api_key)
+                st.session_state.gmail_connected = True
+                st.success(f"Connected to Gmail: {gmail_manager.user_email}")
+                st.rerun()  # Rerun to reset state and display the main dashboard
+            else:
+                st.error("Failed to authenticate with provided credentials.")
         except Exception as e:
             st.error(f"Failed to connect to Gmail: {str(e)}")
-            logger.error(f"Gmail connection error: {e}")
     
     def disconnect_gmail(self):
         """Disconnect from Gmail and clear session state"""
