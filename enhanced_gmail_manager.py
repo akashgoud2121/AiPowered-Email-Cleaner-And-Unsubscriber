@@ -10,6 +10,7 @@ from typing import List, Dict, Optional, Tuple
 import logging
 from datetime import datetime, timedelta
 import json
+import io
 
 logger = logging.getLogger(__name__)
 
@@ -115,44 +116,55 @@ class EnhancedGmailManager:
         try:
             creds_data = json.loads(credentials_json)
             
-            # Create a flow from the loaded client secrets
-            flow = InstalledAppFlow.from_client_secrets_json(creds_data, self.SCOPES)
+            # Write credentials to a temporary file
+            temp_creds_file = 'temp_credentials.json'
+            with open(temp_creds_file, 'w') as f:
+                json.dump(creds_data, f)
             
-            # Try different ports if 8080 is busy
-            ports_to_try = [8080, 8081, 8082, 0]  # 0 means random available port
-            creds = None
-            for port in ports_to_try:
-                try:
-                    logger.info(f"Trying to authenticate on port {port}")
-                    creds = flow.run_local_server(port=port, open_browser=True)
-                    break
-                except OSError as e:
-                    if "Address already in use" in str(e) and port != 0:
-                        continue
-                    else:
-                        raise
-            
-            if creds:
-                with open(self.token_file, 'wb') as token:
-                    pickle.dump(creds, token)
-                logger.info("Saved new credentials to token file")
+            try:
+                # Create a flow from the temporary client secrets file
+                flow = InstalledAppFlow.from_client_secrets_file(temp_creds_file, self.SCOPES)
                 
-                self.service = build('gmail', 'v1', credentials=creds)
-                profile = self.service.users().getProfile(userId='me').execute()
-                self.user_email = profile['emailAddress']
-                self.authenticated = True
-                logger.info(f"Gmail API authenticated successfully for {self.user_email}")
-                return True
-            else:
-                logger.error("Authentication with credentials JSON failed: No credentials obtained.")
-                return False
+                # Try different ports if 8080 is busy
+                ports_to_try = [8080, 8081, 8082, 0]  # 0 means random available port
+                creds = None
+                for port in ports_to_try:
+                    try:
+                        logger.info(f"Trying to authenticate on port {port}")
+                        creds = flow.run_local_server(port=port, open_browser=True)
+                        break
+                    except OSError as e:
+                        if "Address already in use" in str(e) and port != 0:
+                            continue
+                        else:
+                            raise
                 
+                if creds:
+                    with open(self.token_file, 'wb') as token:
+                        pickle.dump(creds, token)
+                    logger.info("Saved new credentials to token file")
+                    
+                    self.service = build('gmail', 'v1', credentials=creds)
+                    profile = self.service.users().getProfile(userId='me').execute()
+                    self.user_email = profile['emailAddress']
+                    self.authenticated = True
+                    logger.info(f"Gmail API authenticated successfully for {self.user_email}")
+                    return True
+                else:
+                    logger.error("Authentication with credentials JSON failed: No credentials obtained.")
+                    return False
+                    
+            finally:
+                # Clean up temporary file
+                if os.path.exists(temp_creds_file):
+                    os.remove(temp_creds_file)
+                    
         except json.JSONDecodeError:
             logger.error("Invalid JSON format in credentials")
             return False
         except Exception as e:
             logger.error(f"Error in authenticate_with_credentials: {e}")
-            raise # Re-raise to be handled by Streamlit app
+            return False
     
     def is_authenticated(self) -> bool:
         """Check if the Gmail manager is authenticated"""
@@ -253,12 +265,18 @@ class EnhancedGmailManager:
             if part.get('mimeType') == 'text/html':
                 data = part.get('body', {}).get('data', '')
                 if data:
-                    body['html'] += base64.urlsafe_b64decode(data).decode('utf-8', errors='ignore')
+                    try:
+                        body['html'] += base64.urlsafe_b64decode(data).decode('utf-8', errors='ignore')
+                    except Exception as e:
+                        logger.error(f"Error decoding HTML body: {e}")
             
             elif part.get('mimeType') == 'text/plain':
                 data = part.get('body', {}).get('data', '')
                 if data:
-                    body['text'] += base64.urlsafe_b64decode(data).decode('utf-8', errors='ignore')
+                    try:
+                        body['text'] += base64.urlsafe_b64decode(data).decode('utf-8', errors='ignore')
+                    except Exception as e:
+                        logger.error(f"Error decoding text body: {e}")
             
             # Handle multipart
             if 'parts' in part:
@@ -361,16 +379,21 @@ class EnhancedGmailManager:
         results = {'success': [], 'failed': []}
         
         for i, msg_id in enumerate(message_ids):
-            logger.info(f"Deleting email {i+1}/{len(message_ids)}")
+            if i % 10 == 0:  # Progress logging
+                logger.info(f"Deleting email {i+1}/{len(message_ids)}")
             
-            if permanent:
-                success = self.delete_email(msg_id)
-            else:
-                success = self.trash_email(msg_id)
-            
-            if success:
-                results['success'].append(msg_id)
-            else:
+            try:
+                if permanent:
+                    success = self.delete_email(msg_id)
+                else:
+                    success = self.trash_email(msg_id)
+                
+                if success:
+                    results['success'].append(msg_id)
+                else:
+                    results['failed'].append(msg_id)
+            except Exception as e:
+                logger.error(f"Error processing email {msg_id}: {e}")
                 results['failed'].append(msg_id)
         
         logger.info(f"Batch delete completed: {len(results['success'])} success, {len(results['failed'])} failed")
@@ -511,5 +534,3 @@ class EnhancedGmailManager:
         except Exception as e:
             logger.error(f"Error creating backup: {e}")
             return False
-
-
