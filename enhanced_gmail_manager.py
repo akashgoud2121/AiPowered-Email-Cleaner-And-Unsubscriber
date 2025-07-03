@@ -6,11 +6,10 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 import base64
 import email
-from typing import List, Dict, Optional, Tuple
+from typing import List, Dict
 import logging
 from datetime import datetime, timedelta
 import json
-import io
 
 logger = logging.getLogger(__name__)
 
@@ -70,23 +69,10 @@ class EnhancedGmailManager:
                     # Verify credentials file format
                     self._verify_credentials_file()
                     
-                    flow = InstalledAppFlow.from_client_secrets_file(
-                        self.credentials_file, self.SCOPES
-                    )
-                    # Try different ports if 8080 is busy
-                    ports_to_try = [8080, 8081, 8082, 0]  # 0 means random available port
+                    flow = InstalledAppFlow.from_client_secrets_file(self.credentials_file, self.SCOPES)
+                    # Use run_console() instead of run_local_server for environments without a GUI (like Streamlit)
+                    creds = flow.run_console()  # This will allow you to authenticate manually in the console
                     
-                    for port in ports_to_try:
-                        try:
-                            logger.info(f"Trying to authenticate on port {port}")
-                            creds = flow.run_local_server(port=port, open_browser=True)
-                            break
-                        except OSError as e:
-                            if "Address already in use" in str(e) and port != 0:
-                                continue
-                            else:
-                                raise
-                
                 # Save credentials for next run
                 with open(self.token_file, 'wb') as token:
                     pickle.dump(creds, token)
@@ -94,7 +80,6 @@ class EnhancedGmailManager:
                 
             except Exception as e:
                 logger.error(f"Authentication failed: {e}")
-                # Re-raise to be handled by Streamlit app
                 raise
         
         try:
@@ -125,19 +110,8 @@ class EnhancedGmailManager:
                 # Create a flow from the temporary client secrets file
                 flow = InstalledAppFlow.from_client_secrets_file(temp_creds_file, self.SCOPES)
                 
-                # Try different ports if 8080 is busy
-                ports_to_try = [8080, 8081, 8082, 0]  # 0 means random available port
-                creds = None
-                for port in ports_to_try:
-                    try:
-                        logger.info(f"Trying to authenticate on port {port}")
-                        creds = flow.run_local_server(port=port, open_browser=True)
-                        break
-                    except OSError as e:
-                        if "Address already in use" in str(e) and port != 0:
-                            continue
-                        else:
-                            raise
+                # Use run_console() instead of run_local_server
+                creds = flow.run_console()  # This allows manual authentication using a console
                 
                 if creds:
                     with open(self.token_file, 'wb') as token:
@@ -197,6 +171,8 @@ class EnhancedGmailManager:
         except FileNotFoundError:
             raise FileNotFoundError(f"Credentials file {self.credentials_file} not found")
     
+    # Other Gmail API management functions like search_emails, get_email_content, etc.
+
     def search_emails(self, query: str, max_results: int = 100) -> List[str]:
         """Search for emails matching the query"""
         if not self.is_authenticated():
