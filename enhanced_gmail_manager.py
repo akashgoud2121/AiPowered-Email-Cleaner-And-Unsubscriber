@@ -70,9 +70,15 @@ class EnhancedGmailManager:
                     self._verify_credentials_file()
                     
                     flow = InstalledAppFlow.from_client_secrets_file(self.credentials_file, self.SCOPES)
-                    # Use run_console() instead of run_local_server for environments without a GUI (like Streamlit)
-                    creds = flow.run_console()  # This will allow you to authenticate manually in the console
                     
+                    # Use `run_console()` for manual authentication in Streamlit
+                    logger.info("Please visit the URL below to authenticate the application.")
+                    auth_url, _ = flow.authorization_url(prompt='consent')
+                    logger.info(f"Authentication URL: {auth_url}")
+                    # Ask user to visit the URL and provide the authorization code
+                    code = input("Enter the authorization code: ")  # Get code from user
+                    creds = flow.fetch_token(authorization_response=code, client_secret=self.credentials_file)
+                
                 # Save credentials for next run
                 with open(self.token_file, 'wb') as token:
                     pickle.dump(creds, token)
@@ -170,7 +176,7 @@ class EnhancedGmailManager:
             raise ValueError("Credentials file is not valid JSON")
         except FileNotFoundError:
             raise FileNotFoundError(f"Credentials file {self.credentials_file} not found")
-    
+
     # Other Gmail API management functions like search_emails, get_email_content, etc.
 
     def search_emails(self, query: str, max_results: int = 100) -> List[str]:
