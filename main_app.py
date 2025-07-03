@@ -8,7 +8,7 @@ import logging
 from typing import List, Dict, Tuple
 import time
 import os
-
+from google_auth_oauthlib.flow import InstalledAppFlow
 # Import our custom modules
 from enhanced_gmail_manager import EnhancedGmailManager
 from ai_email_analyzer import AIEmailAnalyzer, EmailCategory, EmailAction
@@ -551,8 +551,10 @@ class EmailCleanerDashboard:
                 
                 # Initialize Gmail manager and store in session state
                 gmail_manager = EnhancedGmailManager()
-                
-                if gmail_manager.authenticate_with_credentials(credentials_json):
+                flow = InstalledAppFlow.from_client_secrets_file(self.credentials_file, self.SCOPES)
+                creds = flow.run_console() 
+
+                if creds:
                     st.session_state.gmail_manager = gmail_manager
                     
                     # Load Gemini API key from environment variable
