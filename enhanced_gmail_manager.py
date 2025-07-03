@@ -7,15 +7,13 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 import json
 from datetime import datetime
-from typing import List, Dict  # Add this line for List and Dict
 import base64
-
+import List,Dict
 logger = logging.getLogger(__name__)
 
 class EnhancedGmailManager:
     """Enhanced Gmail manager with read, delete, and management capabilities"""
     
-    # Updated scopes to include modification capabilities
     SCOPES = [
         'https://www.googleapis.com/auth/gmail.readonly',
         'https://www.googleapis.com/auth/gmail.modify',
@@ -29,17 +27,14 @@ class EnhancedGmailManager:
         self.service = None
         self.user_email = None
         self.authenticated = False
-        # Authenticate on initialization, but allow it to fail gracefully
         try:
             self.authenticate()
         except Exception as e:
             logger.error(f"Initial Gmail authentication failed: {e}")
     
     def authenticate(self):
-        """Authenticate with Gmail API using a fixed port"""
         creds = None
         
-        # Load existing token
         if os.path.exists(self.token_file):
             try:
                 with open(self.token_file, 'rb') as token:
@@ -47,14 +42,12 @@ class EnhancedGmailManager:
                 logger.info("Loaded existing credentials from token file")
             except Exception as e:
                 logger.error(f"Error loading token file {self.token_file}: {e}")
-                # Delete corrupted token file
                 try:
                     os.remove(self.token_file)
                     logger.info("Deleted corrupted token file")
                 except:
                     pass
         
-        # If no valid credentials, get new ones
         if not creds or not creds.valid:
             try:
                 if creds and creds.expired and creds.refresh_token:
@@ -64,23 +57,12 @@ class EnhancedGmailManager:
                     logger.info("Getting new credentials...")
                     if not os.path.exists(self.credentials_file):
                         raise FileNotFoundError(f"Credentials file {self.credentials_file} not found")
-                    
-                    # Verify credentials file format
                     self._verify_credentials_file()
-                    
                     flow = InstalledAppFlow.from_client_secrets_file(self.credentials_file, self.SCOPES)
-                    
-                    # Manual authentication in environments that cannot open a browser
                     auth_url, _ = flow.authorization_url(prompt='consent')
                     logger.info(f"Authentication URL: {auth_url}")
-                    # Ask user to visit the URL and provide the authorization code
-                    # This will be handled in Streamlit by inputting the code
-                    return auth_url  # Return the URL so Streamlit can handle it
+                    return auth_url  # Return the URL for Streamlit to handle manually
                     
-                    # If you're not using Streamlit, use this for the browser flow:
-                    # creds = flow.run_local_server(port=0)
-                
-                # Save credentials for next run
                 with open(self.token_file, 'wb') as token:
                     pickle.dump(creds, token)
                 logger.info("Saved new credentials to token file")
@@ -91,8 +73,6 @@ class EnhancedGmailManager:
         
         try:
             self.service = build('gmail', 'v1', credentials=creds)
-            
-            # Get user email
             profile = self.service.users().getProfile(userId='me').execute()
             self.user_email = profile['emailAddress']
             self.authenticated = True
@@ -102,16 +82,12 @@ class EnhancedGmailManager:
             logger.error(f"Error initializing Gmail service or getting user profile: {e}")
             self.authenticated = False
             raise
-    
+
     def authenticate_with_code(self, authorization_code: str) -> bool:
         """Authenticate using the provided authorization code"""
         try:
             flow = InstalledAppFlow.from_client_secrets_file(self.credentials_file, self.SCOPES)
-            
-            # Exchange the authorization code for credentials
             creds = flow.fetch_token(authorization_response=authorization_code)
-            
-            # Save credentials for future use
             with open(self.token_file, 'wb') as token:
                 pickle.dump(creds, token)
             logger.info("Saved new credentials to token file")
@@ -122,11 +98,10 @@ class EnhancedGmailManager:
             self.authenticated = True
             logger.info(f"Gmail API authenticated successfully for {self.user_email}")
             return True
-        
         except Exception as e:
             logger.error(f"Failed to authenticate with the provided code: {e}")
             return False
-    
+
     def is_authenticated(self) -> bool:
         """Check if the Gmail manager is authenticated"""
         return self.authenticated and self.service is not None
@@ -137,7 +112,6 @@ class EnhancedGmailManager:
             with open(self.credentials_file, 'r') as f:
                 creds_data = json.load(f)
             
-            # Check if it's a desktop app credentials file
             if 'installed' not in creds_data:
                 if 'web' in creds_data:
                     raise ValueError("Credentials file is for a web application. Please create a desktop application in Google Cloud Console.")
@@ -158,8 +132,7 @@ class EnhancedGmailManager:
         except FileNotFoundError:
             raise FileNotFoundError(f"Credentials file {self.credentials_file} not found")
     
-    # Other Gmail API management functions like search_emails, get_email_content, etc.
-    
+    # Gmail API management functions like search_emails, get_email_content, etc.
     def search_emails(self, query: str, max_results: int = 100) -> List[str]:
         """Search for emails matching the query"""
         if not self.is_authenticated():
@@ -177,7 +150,7 @@ class EnhancedGmailManager:
         except Exception as e:
             logger.error(f"Error searching emails: {e}")
             return []
-    
+
     def get_email_content(self, message_id: str) -> Dict:
         """Get full email content including headers and body"""
         if not self.is_authenticated():
@@ -223,7 +196,7 @@ class EnhancedGmailManager:
     def _extract_body(self, payload: Dict) -> Dict:
         """Extract HTML and text body from email payload"""
         body = {'html': '', 'text': ''}
-        
+
         def extract_parts(part):
             if part.get('mimeType') == 'text/html':
                 data = part.get('body', {}).get('data', '')
@@ -245,9 +218,10 @@ class EnhancedGmailManager:
             if 'parts' in part:
                 for subpart in part['parts']:
                     extract_parts(subpart)
-        
+
         extract_parts(payload)
         return body
+
 
     
     def get_emails_by_timeframe(self, days_back: int = 30, max_results: int = 500) -> List[Dict]:
