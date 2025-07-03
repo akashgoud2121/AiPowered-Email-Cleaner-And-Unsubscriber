@@ -26,22 +26,22 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Custom CSS
+# Custom CSS - Fixed color scheme
 st.markdown("""
 <style>
 .main-header {
     font-size: 2.5rem;
     font-weight: bold;
-    color: yellow;  /* deep green */
+    color: #2E7D32;  /* deep green */
     text-align: center;
     margin-bottom: 2rem;
 }
 
 .metric-card {
-    background-color: blue;  /* soft green */
+    background-color: #E8F5E9;  /* soft green */
     padding: 1rem;
     border-radius: 0.5rem;
-    border-left: 5px solid red;  /* deeper green */
+    border-left: 5px solid #4CAF50;  /* deeper green */
     margin-bottom: 1rem;
     box-shadow: 0 2px 6px rgba(0,0,0,0.1);
 }
@@ -90,6 +90,12 @@ class EmailCleanerDashboard:
             st.session_state.gmail_manager = None
         if 'ai_analyzer' not in st.session_state:
             st.session_state.ai_analyzer = None
+        
+        # Initialize sidebar settings with default values
+        self.max_emails = 200
+        self.days_back = 30
+        self.filter_categories = [category.value for category in EmailCategory]
+        self.filter_actions = [action.value for action in EmailAction]
         
     @property
     def gmail_manager(self):
@@ -371,8 +377,11 @@ class EmailCleanerDashboard:
         
         # Convert date column properly
         if 'date' in emails_df.columns:
-            # Attempt to parse date, coerce errors to NaT
-            emails_df['date'] = pd.to_datetime(emails_df['date'], errors='coerce', utc=True)
+            try:
+                # Attempt to parse date, coerce errors to NaT
+                emails_df['date'] = pd.to_datetime(emails_df['date'], errors='coerce', utc=True)
+            except Exception as e:
+                logger.warning(f"Error parsing dates: {e}")
         
         col1, col2 = st.columns(2)
         
@@ -409,7 +418,6 @@ class EmailCleanerDashboard:
                     st.write("No valid dates found for timeline analysis")
             except Exception as e:
                 st.write(f"Could not parse dates for timeline analysis: {e}")
-
     
     def render_bulk_actions(self):
         """Render bulk action controls"""
@@ -429,7 +437,7 @@ class EmailCleanerDashboard:
             st.markdown("#### 🗑️ Delete Actions")
             # Use string value instead of enum
             delete_emails = [e for e in st.session_state.analyzed_emails 
-                        if e['action'] == EmailAction.DELETE.value]
+                           if e.get('action') == EmailAction.DELETE.value]
             
             st.write(f"Emails marked for deletion: {len(delete_emails)}")
             
@@ -440,7 +448,7 @@ class EmailCleanerDashboard:
             st.markdown("#### 🚫 Unsubscribe Actions")
             # Use string value instead of enum
             unsub_emails = [e for e in st.session_state.analyzed_emails 
-                        if e['action'] == EmailAction.UNSUBSCRIBE.value]
+                          if e.get('action') == EmailAction.UNSUBSCRIBE.value]
             
             st.write(f"Emails to unsubscribe: {len(unsub_emails)}")
             
@@ -451,7 +459,7 @@ class EmailCleanerDashboard:
             st.markdown("#### 📧 Archive Actions")
             # Use string value instead of enum
             archive_emails = [e for e in st.session_state.analyzed_emails 
-                            if e['action'] == EmailAction.ARCHIVE.value]
+                            if e.get('action') == EmailAction.ARCHIVE.value]
             
             st.write(f"Emails to archive: {len(archive_emails)}")
             
@@ -468,36 +476,44 @@ class EmailCleanerDashboard:
             st.warning("No data available for charts.")
             return
         
-        # Confidence distribution
-        fig_confidence = px.histogram(
-            emails_df, 
-            x='confidence', 
-            title='AI Confidence Distribution',
-            nbins=20
-        )
-        st.plotly_chart(fig_confidence, use_container_width=True)
+        try:
+            # Confidence distribution
+            if 'confidence' in emails_df.columns:
+                fig_confidence = px.histogram(
+                    emails_df, 
+                    x='confidence', 
+                    title='AI Confidence Distribution',
+                    nbins=20
+                )
+                st.plotly_chart(fig_confidence, use_container_width=True)
+            
+            # Category vs Action heatmap
+            if 'category' in emails_df.columns and 'action' in emails_df.columns:
+                category_action = pd.crosstab(emails_df['category'], emails_df['action'])
+                fig_heatmap = px.imshow(
+                    category_action.values,
+                    x=category_action.columns,
+                    y=category_action.index,
+                    title='Category vs Action Heatmap',
+                    aspect="auto"
+                )
+                st.plotly_chart(fig_heatmap, use_container_width=True)
+            
+            # Sender analysis
+            if 'from' in emails_df.columns:
+                top_senders = emails_df['from'].value_counts().head(15)
+                fig_senders = px.bar(
+                    x=top_senders.values,
+                    y=top_senders.index,
+                    orientation='h',
+                    title='Top 15 Email Senders'
+                )
+                fig_senders.update_layout(height=600)
+                st.plotly_chart(fig_senders, use_container_width=True)
         
-        # Category vs Action heatmap
-        category_action = pd.crosstab(emails_df['category'], emails_df['action'])
-        fig_heatmap = px.imshow(
-            category_action.values,
-            x=category_action.columns,
-            y=category_action.index,
-            title='Category vs Action Heatmap',
-            aspect="auto"
-        )
-        st.plotly_chart(fig_heatmap, use_container_width=True)
-        
-        # Sender analysis
-        top_senders = emails_df['from'].value_counts().head(15)
-        fig_senders = px.bar(
-            x=top_senders.values,
-            y=top_senders.index,
-            orientation='h',
-            title='Top 15 Email Senders'
-        )
-        fig_senders.update_layout(height=600)
-        st.plotly_chart(fig_senders, use_container_width=True)
+        except Exception as e:
+            st.error(f"Error creating charts: {str(e)}")
+            logger.error(f"Chart creation error: {e}")
     
     def connect_gmail_with_token(self):
         """Connect to Gmail using existing token"""
@@ -514,13 +530,13 @@ class EmailCleanerDashboard:
                     if not gemini_api_key:
                         st.error("GEMINI_API_KEY environment variable not set. Please set it and rerun.")
                         return
-                    st.session_state.ai_analyzer = AIEmailAnalyzer(gemini_api_key)
                     
+                    st.session_state.ai_analyzer = AIEmailAnalyzer(gemini_api_key)
                     st.session_state.gmail_connected = True
                     st.success(f"Connected to Gmail: {gmail_manager.user_email}")
                     st.rerun()
                 else:
-                    st.error("Failed to authenticate with existing token")
+                    st.error("Failed to authenticate with existing token. Please check your credentials.")
         except Exception as e:
             st.error(f"Failed to connect to Gmail: {str(e)}")
             logger.error(f"Gmail connection error: {e}")
@@ -544,8 +560,8 @@ class EmailCleanerDashboard:
                     if not gemini_api_key:
                         st.error("GEMINI_API_KEY environment variable not set. Please set it and rerun.")
                         return
-                    st.session_state.ai_analyzer = AIEmailAnalyzer(gemini_api_key)
                     
+                    st.session_state.ai_analyzer = AIEmailAnalyzer(gemini_api_key)
                     st.session_state.gmail_connected = True
                     st.success(f"Connected to Gmail: {gmail_manager.user_email}")
                     st.rerun()
@@ -601,13 +617,13 @@ class EmailCleanerDashboard:
                         analysis = st.session_state.ai_analyzer.analyze_email(email)
                         
                         analyzed_email = {
-                            'id': email.get('id'),
+                            'id': email.get('id', ''),
                             'subject': email.get('subject', 'No Subject'),
                             'from': email.get('from', 'Unknown'),
                             'date': email.get('date', ''),
                             'snippet': email.get('snippet', ''),
-                            'body_html': email.get('body_html', ''), # Add body_html for unsubscriber
-                            'body_text': email.get('body_text', ''), # Add body_text for unsubscriber
+                            'body_html': email.get('body_html', ''),
+                            'body_text': email.get('body_text', ''),
                             'category': analysis.category.value,
                             'action': analysis.action.value,
                             'confidence': analysis.confidence,
@@ -649,29 +665,30 @@ class EmailCleanerDashboard:
         """Filter emails based on sidebar selections"""
         filtered = []
         for email in st.session_state.analyzed_emails:
-            if (email['category'] in self.filter_categories and 
-                email['action'] in self.filter_actions):
+            if (email.get('category') in self.filter_categories and 
+                email.get('action') in self.filter_actions):
                 filtered.append(email)
         return filtered
     
     def delete_single_email(self, email_id):
         """Delete a single email"""
         try:
-            if st.session_state.gmail_manager:
+            if st.session_state.gmail_manager and email_id:
                 success = st.session_state.gmail_manager.delete_email(email_id)
                 if success:
                     st.success("Email deleted successfully!")
                     # Remove from analyzed emails
                     st.session_state.analyzed_emails = [
-                        e for e in st.session_state.analyzed_emails if e['id'] != email_id
+                        e for e in st.session_state.analyzed_emails if e.get('id') != email_id
                     ]
                     st.rerun()
                 else:
                     st.error("Failed to delete email")
             else:
-                st.error("Gmail not connected!")
+                st.error("Gmail not connected or invalid email ID!")
         except Exception as e:
             st.error(f"Failed to delete email: {str(e)}")
+            logger.error(f"Delete email error: {e}")
     
     def unsubscribe_single_email(self, email_data: Dict):
         """Unsubscribe from a single email"""
@@ -693,31 +710,42 @@ class EmailCleanerDashboard:
                         st.info(f"Unsubscribe attempt failed: {r.message} (Method: {r.method}, URL: {r.url})")
         except Exception as e:
             st.error(f"Failed to unsubscribe: {str(e)}")
+            logger.error(f"Unsubscribe error: {e}")
     
     def bulk_delete_emails(self, emails):
         """Delete multiple emails"""
         try:
+            if not emails:
+                st.warning("No emails selected for deletion.")
+                return
+                
             with st.spinner(f"Deleting {len(emails)} emails..."):
-                email_ids = [email['id'] for email in emails]
+                email_ids = [email.get('id') for email in emails if email.get('id')]
+                
+                if not email_ids:
+                    st.warning("No valid email IDs found.")
+                    return
+                
                 results = st.session_state.gmail_manager.batch_delete_emails(email_ids, permanent=True)
                 
-                success_count = len(results['success'])
-                failed_count = len(results['failed'])
+                success_count = len(results.get('success', []))
+                failed_count = len(results.get('failed', []))
                 
                 st.success(f"Successfully deleted {success_count} emails!")
                 if failed_count > 0:
                     st.warning(f"Failed to delete {failed_count} emails")
                 
                 # Remove deleted emails from session state
-                deleted_ids = set(results['success'])
+                deleted_ids = set(results.get('success', []))
                 st.session_state.analyzed_emails = [
                     e for e in st.session_state.analyzed_emails 
-                    if e['id'] not in deleted_ids
+                    if e.get('id') not in deleted_ids
                 ]
                 st.rerun()
                 
         except Exception as e:
             st.error(f"Bulk delete failed: {str(e)}")
+            logger.error(f"Bulk delete error: {e}")
     
     def bulk_unsubscribe_emails(self, emails):
         """Unsubscribe from multiple emails"""
