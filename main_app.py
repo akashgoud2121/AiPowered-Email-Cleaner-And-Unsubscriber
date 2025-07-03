@@ -222,11 +222,11 @@ class EmailCleanerDashboard:
             3. Authenticate with your Google account
             """)
             
-            credentials_file = st.file_uploader(
-                "Upload Gmail Credentials JSON",
-                type=['json'],
-                help="Download this from Google Cloud Console"
-            )
+            credentials_file = st.file_uploader("Upload client_secret.json", type="json")
+            if credentials_file is not None:
+                with open("client_secret.json", "wb") as f:
+                    f.write(credentials_file.getbuffer())
+                st.success("File uploaded successfully!")
             
             if credentials_file is not None:
                 if st.button("🔗 Connect with Credentials File", type="secondary"):
