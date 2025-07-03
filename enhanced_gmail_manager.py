@@ -6,9 +6,9 @@ from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 import json
-from datetime import datetime
+from datetime import datetime,timedelta
 import base64
-import List,Dict
+from typing import List, Dict, Optional, Tuple
 logger = logging.getLogger(__name__)
 
 class EnhancedGmailManager:
