@@ -252,7 +252,7 @@ class AIEmailAnalyzer:
         results = []
         
         for i, email in enumerate(emails):
-            logger.info(f"Analyzing email {i+1}/{len(emails)}: {email.get("subject", "")[:50]}")
+            logger.info(f"Analyzing email {i+1}/{len(emails)}: {email.get('subject', '')[:50]}")
             
             try:
                 analysis = self.analyze_email(email)

@@ -32,16 +32,16 @@ st.markdown("""
 .main-header {
     font-size: 2.5rem;
     font-weight: bold;
-    color: #2e7d32;  /* deep green */
+    color: yellow;  /* deep green */
     text-align: center;
     margin-bottom: 2rem;
 }
 
 .metric-card {
-    background-color: #f1f8e9;  /* soft green */
+    background-color: blue;  /* soft green */
     padding: 1rem;
     border-radius: 0.5rem;
-    border-left: 5px solid #388e3c;  /* deeper green */
+    border-left: 5px solid red;  /* deeper green */
     margin-bottom: 1rem;
     box-shadow: 0 2px 6px rgba(0,0,0,0.1);
 }
