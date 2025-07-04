@@ -32,16 +32,16 @@ st.markdown("""
 .main-header {
     font-size: 2.5rem;
     font-weight: bold;
-    color: #2E7D32;  /* deep green */
+    color: gold;  /* deep green */
     text-align: center;
     margin-bottom: 2rem;
 }
 
 .metric-card {
-    background-color: #E8F5E9;  /* soft green */
+    background-color: blue;  /* soft green */
     padding: 1rem;
     border-radius: 0.5rem;
-    border-left: 5px solid #4CAF50;  /* deeper green */
+    border-left: 5px solid red;  /* deeper green */
     margin-bottom: 1rem;
     box-shadow: 0 2px 6px rgba(0,0,0,0.1);
 }
@@ -68,8 +68,6 @@ st.markdown("""
 }
 </style>
 """, unsafe_allow_html=True)
-
-
 
 class EmailCleanerDashboard:
     """Streamlit dashboard for AI Email Cleaner"""
@@ -516,21 +514,25 @@ class EmailCleanerDashboard:
                 # Initialize Gmail manager and store in session state
                 gmail_manager = EnhancedGmailManager()
                 
-                if gmail_manager.is_authenticated():
+                # Try to authenticate with existing token
+                if gmail_manager.authenticate():
                     st.session_state.gmail_manager = gmail_manager
                     
-                    # Load Gemini API key from environment variable
+                    # Load Gemini API key from environment variable or Streamlit secrets
                     gemini_api_key = os.getenv("GEMINI_API_KEY")
                     if not gemini_api_key:
-                        st.error("GEMINI_API_KEY environment variable not set. Please set it and rerun.")
-                        return
+                        try:
+                            gemini_api_key = st.secrets["GEMINI_API_KEY"]
+                        except KeyError:
+                            st.error("GEMINI_API_KEY not found in environment variables or Streamlit secrets. Please set it and rerun.")
+                            return
                     
                     st.session_state.ai_analyzer = AIEmailAnalyzer(gemini_api_key)
                     st.session_state.gmail_connected = True
                     st.success(f"Connected to Gmail: {gmail_manager.user_email}")
                     st.rerun()
                 else:
-                    st.error("Failed to authenticate with existing token. Please check your credentials.")
+                    st.error("Failed to authenticate with existing token. Please check your credentials or try uploading credentials file.")
         except Exception as e:
             st.error(f"Failed to connect to Gmail: {str(e)}")
             logger.error(f"Gmail connection error: {e}")
@@ -538,29 +540,35 @@ class EmailCleanerDashboard:
     def connect_gmail_with_file(self, credentials_file):
         """Authenticate using uploaded credentials file"""
         try:
-            # Read credentials from the uploaded file
-            credentials_data = json.load(credentials_file)
-            credentials_json = json.dumps(credentials_data)
+            with st.spinner("Authenticating with Gmail..."):
+                # Read credentials from the uploaded file
+                credentials_data = json.load(credentials_file)
+                
+                # Initialize Gmail manager
+                gmail_manager = EnhancedGmailManager()
+                
+                # Authenticate with credentials
+                if gmail_manager.authenticate_with_credentials(credentials_data):
+                    st.session_state.gmail_manager = gmail_manager
 
-            # Initialize Gmail manager and authenticate
-            gmail_manager = EnhancedGmailManager()
-            if gmail_manager.authenticate_with_credentials(credentials_json):
-                st.session_state.gmail_manager = gmail_manager
+                    # Initialize AI Email Analyzer
+                    gemini_api_key = os.getenv("GEMINI_API_KEY")
+                    if not gemini_api_key:
+                        try:
+                            gemini_api_key = st.secrets["GEMINI_API_KEY"]
+                        except KeyError:
+                            st.error("GEMINI_API_KEY not found in environment variables or Streamlit secrets. Please set it and rerun.")
+                            return
 
-                # Initialize AI Email Analyzer
-                gemini_api_key = st.secrets.get("GEMINI_API_KEY")  # Use secrets for storing API keys
-                if not gemini_api_key:
-                    st.error("GEMINI_API_KEY environment variable not set. Please set it and rerun.")
-                    return
-
-                st.session_state.ai_analyzer = AIEmailAnalyzer(gemini_api_key)
-                st.session_state.gmail_connected = True
-                st.success(f"Connected to Gmail: {gmail_manager.user_email}")
-                st.rerun()  # Rerun to reset state and display the main dashboard
-            else:
-                st.error("Failed to authenticate with provided credentials.")
+                    st.session_state.ai_analyzer = AIEmailAnalyzer(gemini_api_key)
+                    st.session_state.gmail_connected = True
+                    st.success(f"Connected to Gmail: {gmail_manager.user_email}")
+                    st.rerun()
+                else:
+                    st.error("Failed to authenticate with provided credentials.")
         except Exception as e:
             st.error(f"Failed to connect to Gmail: {str(e)}")
+            logger.error(f"Gmail connection with file error: {e}")
     
     def disconnect_gmail(self):
         """Disconnect from Gmail and clear session state"""
@@ -738,6 +746,7 @@ class EmailCleanerDashboard:
             st.error(f"Bulk delete failed: {str(e)}")
             logger.error(f"Bulk delete error: {e}")
     
+
     def bulk_unsubscribe_emails(self, emails):
         """Unsubscribe from multiple emails"""
         try:

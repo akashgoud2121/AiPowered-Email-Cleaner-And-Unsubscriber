@@ -9,6 +9,7 @@ import json
 from datetime import datetime,timedelta
 import base64
 from typing import List, Dict, Optional, Tuple
+import tempfile
 logger = logging.getLogger(__name__)
 
 class EnhancedGmailManager:
@@ -33,6 +34,7 @@ class EnhancedGmailManager:
             logger.error(f"Initial Gmail authentication failed: {e}")
     
     def authenticate(self):
+        """Authenticate with Gmail API using existing token or credentials file"""
         creds = None
         
         if os.path.exists(self.token_file):
@@ -53,20 +55,24 @@ class EnhancedGmailManager:
                 if creds and creds.expired and creds.refresh_token:
                     logger.info("Refreshing expired credentials...")
                     creds.refresh(Request())
+                    
+                    # Save refreshed credentials
+                    with open(self.token_file, 'wb') as token:
+                        pickle.dump(creds, token)
+                    logger.info("Refreshed and saved credentials")
+                    
                 else:
-                    logger.info("Getting new credentials...")
+                    logger.info("Need new credentials...")
                     if not os.path.exists(self.credentials_file):
+                        logger.warning(f"Credentials file {self.credentials_file} not found")
                         raise FileNotFoundError(f"Credentials file {self.credentials_file} not found")
+                    
                     self._verify_credentials_file()
                     flow = InstalledAppFlow.from_client_secrets_file(self.credentials_file, self.SCOPES)
                     auth_url, _ = flow.authorization_url(prompt='consent')
                     logger.info(f"Authentication URL: {auth_url}")
-                    return auth_url  # Return the URL for Streamlit to handle manually
+                    return auth_url  # Return the URL for manual authentication
                     
-                with open(self.token_file, 'wb') as token:
-                    pickle.dump(creds, token)
-                logger.info("Saved new credentials to token file")
-                
             except Exception as e:
                 logger.error(f"Authentication failed: {e}")
                 raise
@@ -83,11 +89,88 @@ class EnhancedGmailManager:
             self.authenticated = False
             raise
 
-    def authenticate_with_code(self, authorization_code: str) -> bool:
-        """Authenticate using the provided authorization code"""
+    def authenticate_with_credentials(self, credentials_json: str) -> bool:
+        """Authenticate using credentials JSON string"""
         try:
+            # Parse the credentials JSON
+            credentials_data = json.loads(credentials_json)
+            
+            # Create a temporary file for the credentials
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as temp_file:
+                json.dump(credentials_data, temp_file)
+                temp_credentials_file = temp_file.name
+            
+            try:
+                # Verify the credentials format
+                self._verify_credentials_file(temp_credentials_file)
+                
+                # Create flow and get authorization URL
+                flow = InstalledAppFlow.from_client_secrets_file(temp_credentials_file, self.SCOPES)
+                auth_url, _ = flow.authorization_url(prompt='consent')
+                
+                logger.info(f"Authentication URL generated: {auth_url}")
+                
+                # Store the temp file path and flow for later use
+                self.temp_credentials_file = temp_credentials_file
+                self.auth_flow = flow
+                
+                return auth_url
+                
+            finally:
+                # Clean up temp file if we're done with it
+                if hasattr(self, 'temp_credentials_file') and os.path.exists(temp_credentials_file):
+                    # Don't delete yet - we need it for the flow
+                    pass
+                    
+        except Exception as e:
+            logger.error(f"Failed to authenticate with credentials: {e}")
+            return False
+
+    def complete_authentication_with_code(self, authorization_code: str) -> bool:
+        """Complete authentication using the authorization code"""
+        try:
+            if not hasattr(self, 'auth_flow'):
+                logger.error("No authentication flow found. Please call authenticate_with_credentials first.")
+                return False
+            
+            # Exchange authorization code for credentials
+            self.auth_flow.fetch_token(authorization_response=authorization_code)
+            creds = self.auth_flow.credentials
+            
+            # Save credentials
+            with open(self.token_file, 'wb') as token:
+                pickle.dump(creds, token)
+            logger.info("Saved new credentials to token file")
+            
+            # Initialize service
+            self.service = build('gmail', 'v1', credentials=creds)
+            profile = self.service.users().getProfile(userId='me').execute()
+            self.user_email = profile['emailAddress']
+            self.authenticated = True
+            
+            # Clean up temp file
+            if hasattr(self, 'temp_credentials_file') and os.path.exists(self.temp_credentials_file):
+                os.unlink(self.temp_credentials_file)
+                delattr(self, 'temp_credentials_file')
+            
+            logger.info(f"Gmail API authenticated successfully for {self.user_email}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to complete authentication: {e}")
+            return False
+
+    def authenticate_with_code(self, authorization_code: str) -> bool:
+        """Authenticate using the provided authorization code (legacy method)"""
+        try:
+            if not os.path.exists(self.credentials_file):
+                logger.error(f"Credentials file {self.credentials_file} not found")
+                return False
+                
             flow = InstalledAppFlow.from_client_secrets_file(self.credentials_file, self.SCOPES)
-            creds = flow.fetch_token(authorization_response=authorization_code)
+            flow.fetch_token(authorization_response=authorization_code)
+            creds = flow.credentials
+            
             with open(self.token_file, 'wb') as token:
                 pickle.dump(creds, token)
             logger.info("Saved new credentials to token file")
@@ -106,10 +189,12 @@ class EnhancedGmailManager:
         """Check if the Gmail manager is authenticated"""
         return self.authenticated and self.service is not None
     
-    def _verify_credentials_file(self):
+    def _verify_credentials_file(self, credentials_file: str = None):
         """Verify the credentials file has the correct format"""
+        file_to_check = credentials_file or self.credentials_file
+        
         try:
-            with open(self.credentials_file, 'r') as f:
+            with open(file_to_check, 'r') as f:
                 creds_data = json.load(f)
             
             if 'installed' not in creds_data:
@@ -130,9 +215,9 @@ class EnhancedGmailManager:
         except json.JSONDecodeError:
             raise ValueError("Credentials file is not valid JSON")
         except FileNotFoundError:
-            raise FileNotFoundError(f"Credentials file {self.credentials_file} not found")
+            raise FileNotFoundError(f"Credentials file {file_to_check} not found")
     
-    # Gmail API management functions like search_emails, get_email_content, etc.
+    # Gmail API management functions
     def search_emails(self, query: str, max_results: int = 100) -> List[str]:
         """Search for emails matching the query"""
         if not self.is_authenticated():
@@ -222,8 +307,6 @@ class EnhancedGmailManager:
         extract_parts(payload)
         return body
 
-
-    
     def get_emails_by_timeframe(self, days_back: int = 30, max_results: int = 500) -> List[Dict]:
         """Get emails from a specific timeframe"""
         if not self.is_authenticated():
